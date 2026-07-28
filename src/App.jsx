@@ -6,6 +6,7 @@ import AssetSelector from './components/AssetSelector';
 import { generateHouseBIM } from './utils/promptGenerator';
 import { exportToSVG } from './utils/exporters';
 import SupabaseAuthPanel from './components/SupabaseAuthPanel';
+import { supabase } from './utils/supabaseClient';
 
 import {
   Compass,
@@ -22,7 +23,11 @@ import {
   X,
   Sliders,
   LifeBuoy,
-  Cloud
+  Cloud,
+  Lock,
+  Mail,
+  Key,
+  FolderOpen
 } from 'lucide-react';
 import './App.css';
 
@@ -38,6 +43,105 @@ const initialHouseData = generateHouseBIM({
 export default function App() {
   const [houseData, setHouseData] = useState(initialHouseData);
   const [selectedAssetId, setSelectedAssetId] = useState(null);
+
+  // View navigation: 'landing' | 'login' | 'dashboard' | 'editor'
+  const [currentView, setCurrentView] = useState('landing');
+  const [user, setUser] = useState(null);
+  const [projectName, setProjectName] = useState('My Vastu Layout');
+
+  // Mini login/signup integration states
+  const [loginEmail, setLoginEmail] = useState('');
+  const [loginPassword, setLoginPassword] = useState('');
+  const [isLoginSignUp, setIsLoginSignUp] = useState(false);
+  const [loginLoading, setLoginLoading] = useState(false);
+  const [loginError, setLoginError] = useState('');
+
+  // Dashboard configuration templates states
+  const [newProjectName, setNewProjectName] = useState('My Custom Architecture');
+  const [newProjectArea, setNewProjectArea] = useState(1200);
+  const [newProjectBedrooms, setNewProjectBedrooms] = useState(2);
+  const [newProjectBathrooms, setNewProjectBathrooms] = useState(2);
+  const [newProjectParking, setNewProjectParking] = useState(true);
+  const [newProjectStyle, setNewProjectStyle] = useState('modern');
+
+  // Cloud database integration stats
+  const [userProjects, setUserProjects] = useState([]);
+  const [loadingProjects, setLoadingProjects] = useState(false);
+
+  // Sync auth updates
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setUser(session?.user ?? null);
+    });
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null);
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+  // Fetch projects from Supabase database when user logs in
+  const fetchUserProjects = async (uid) => {
+    if (!uid) return;
+    setLoadingProjects(true);
+    try {
+      const { data, error } = await supabase
+        .from('projects')
+        .select('*')
+        .eq('user_id', uid)
+        .order('updated_at', { ascending: false });
+      if (error) throw error;
+      setUserProjects(data || []);
+    } catch (err) {
+      console.error("Dashboard error loading cloud projects list:", err.message);
+    } finally {
+      setLoadingProjects(false);
+    }
+  };
+
+  useEffect(() => {
+    if (user) {
+      fetchUserProjects(user.id);
+    } else {
+      setUserProjects([]);
+    }
+  }, [user]);
+
+  // Mini login handler
+  const handleMiniAuth = async (e) => {
+    e.preventDefault();
+    setLoginLoading(true);
+    setLoginError('');
+    try {
+      if (isLoginSignUp) {
+        const { data, error } = await supabase.auth.signUp({
+          email: loginEmail,
+          password: loginPassword,
+        });
+        if (error) throw error;
+        alert('Cloud registration succeeded! Please sign in or verify email.');
+        // Set view to login state for user
+        setIsLoginSignUp(false);
+      } else {
+        const { data, error } = await supabase.auth.signInWithPassword({
+          email: loginEmail,
+          password: loginPassword,
+        });
+        if (error) throw error;
+        setCurrentView('dashboard');
+      }
+    } catch (err) {
+      console.error(err);
+      let errMsg = err.message || 'Authenticating state failed.';
+      if (errMsg === 'Failed to fetch') {
+        errMsg = 'Failed to fetch: Connection could not be established. Please make sure your .env has matching valid Supabase credentials.';
+      }
+      setLoginError(errMsg);
+    } finally {
+      setLoginLoading(false);
+    }
+  };
 
   // Dock controls tabs: 'prompt' | 'blueprint' | 'structure' | 'materials' | 'assets'
   const [leftTab, setLeftTab] = useState('blueprint');
@@ -164,6 +268,438 @@ export default function App() {
   };
 
 
+  // Render Landing Page View
+  if (currentView === 'landing') {
+    return (
+      <div className="flex flex-col min-h-screen bg-[#07080a] bg-tech-grid text-zinc-100 overflow-y-auto font-sans">
+        <header className="flex justify-between items-center px-10 py-6 border-b border-zinc-900 bg-[#07080a]/80 backdrop-blur-md sticky top-0 z-50 select-none">
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 bg-gradient-to-tr from-[#9c27b0] to-[#ec4899] rounded-xl shadow-lg shadow-purple-950/30">
+              <HardHat size={18} className="text-white" />
+            </div>
+            <div>
+              <h1 className="text-lg font-black uppercase text-white tracking-widest leading-none">Vision</h1>
+              <span className="text-[10px] text-purple-400 font-extrabold tracking-widest uppercase mt-1 inline-block">Civil Architecture AI</span>
+            </div>
+          </div>
+          <div className="flex items-center gap-6">
+            <a href="https://github.com/aravindkanna132146/VISION-2D_TO_3D" target="_blank" rel="noreferrer" className="text-xs font-bold uppercase text-zinc-400 hover:text-white transition-colors tracking-wider">GitHub</a>
+            {user ? (
+              <button onClick={() => setCurrentView('dashboard')} className="px-5 py-2.5 bg-[#9c27b0] hover:brightness-110 text-white text-xs font-black uppercase rounded-xl transition-all shadow-md cursor-pointer">
+                Go to Dashboard
+              </button>
+            ) : (
+              <button onClick={() => setCurrentView('login')} className="px-5 py-2.5 bg-transparent border border-zinc-800 hover:border-zinc-700 text-white text-xs font-black uppercase rounded-xl transition-all cursor-pointer">
+                Sign In
+              </button>
+            )}
+          </div>
+        </header>
+
+        <main className="flex-grow flex flex-col items-center justify-center text-center px-6 py-20 max-w-5xl mx-auto animate-fade-in">
+          <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-purple-950/40 border border-purple-800/40 rounded-full text-purple-400 text-xs font-bold uppercase tracking-wider mb-6">
+            <Sparkles size={11} className="text-purple-400" />
+            <span>Next-Gen Structural BIM Design Portal</span>
+          </div>
+
+          <h1 className="text-5xl md:text-6xl font-black tracking-tight text-white mb-6 uppercase leading-tight">
+            AI-Powered <span className="bg-gradient-to-r from-purple-400 to-pink-500 bg-clip-text text-transparent">2D to 3D</span><br />Architectural Design Engine
+          </h1>
+
+          <p className="text-base text-zinc-400 max-w-2xl mb-10 font-medium leading-relaxed">
+            Transform architectural description prompts or binarized site blueprint traces into fully furnished, multi-story structural models matching Indian Vastu-shastra alignments in milliseconds.
+          </p>
+
+          <div className="flex flex-col sm:flex-row gap-4 mb-20">
+            <button
+              onClick={() => {
+                setHouseData(initialHouseData);
+                setCurrentView('dashboard');
+              }}
+              className="px-8 py-4 bg-[#9c27b0] hover:brightness-110 text-white text-xs font-black uppercase rounded-xl shadow-lg shadow-purple-950/20 active:scale-98 transition-all cursor-pointer tracking-wider"
+            >
+              Launch Studio Workspace
+            </button>
+            <button
+              onClick={() => {
+                setIsLoginSignUp(false);
+                setCurrentView('login');
+              }}
+              className="px-8 py-4 bg-zinc-900 hover:bg-zinc-855 border border-zinc-850 hover:border-zinc-700 text-zinc-300 text-xs font-black uppercase rounded-xl active:scale-98 transition-all cursor-pointer tracking-wider"
+            >
+              Setup Cloud Account
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-8 w-full border-t border-zinc-900 pt-16">
+            <div className="flex flex-col items-center p-6 bg-zinc-900/35 border border-zinc-900 rounded-2xl glass-panel">
+              <span className="text-3xl font-black text-white mb-2 leading-none">15,000+</span>
+              <span className="text-[10px] uppercase font-extrabold text-zinc-500 tracking-wider">Models Compiled</span>
+            </div>
+            <div className="flex flex-col items-center p-6 bg-zinc-900/35 border border-zinc-900 rounded-2xl glass-panel">
+              <span className="text-3xl font-black text-purple-400 mb-2 leading-none">99.2%</span>
+              <span className="text-[10px] uppercase font-extrabold text-zinc-500 tracking-wider">Vastu Match Accuracy</span>
+            </div>
+            <div className="flex flex-col items-center p-6 bg-zinc-900/35 border border-zinc-900 rounded-2xl glass-panel">
+              <span className="text-3xl font-black text-white mb-2 leading-none">&lt; 100ms</span>
+              <span className="text-[10px] uppercase font-extrabold text-zinc-500 tracking-wider">Execution Latency</span>
+            </div>
+          </div>
+        </main>
+      </div>
+    );
+  }
+
+  // Render Login Page View
+  if (currentView === 'login') {
+    return (
+      <div className="flex flex-col min-h-screen bg-[#07080a] bg-tech-grid text-zinc-100 items-center justify-center p-6 font-sans">
+        <div className="w-full max-w-sm bg-zinc-900/60 p-8 rounded-3xl border border-zinc-850 shadow-2xl glass-panel flex flex-col gap-6 animate-fade-in">
+          <div className="flex items-center gap-3 border-b border-zinc-850 pb-5">
+            <div className="p-2.5 bg-gradient-to-tr from-[#9c27b0] to-[#ec4899] rounded-xl text-white">
+              <Lock size={15} />
+            </div>
+            <div>
+              <h3 className="text-sm font-black uppercase text-white tracking-widest leading-none">Cloud Platform Access</h3>
+              <p className="text-[9px] text-zinc-500 font-extrabold uppercase tracking-wider mt-1.5">Persist projects & sync CAD exports</p>
+            </div>
+          </div>
+
+          <form onSubmit={handleMiniAuth} className="flex flex-col gap-4">
+            <div className="flex flex-col gap-1.5">
+              <label className="text-[10px] uppercase font-bold text-zinc-500 tracking-wider">Email Address</label>
+              <div className="relative">
+                <span className="absolute inset-y-0 left-0 pl-3 flex items-center text-zinc-500">
+                  <Mail size={13} />
+                </span>
+                <input
+                  type="email"
+                  required
+                  value={loginEmail}
+                  onChange={(e) => setLoginEmail(e.target.value)}
+                  placeholder="architect@vision.build"
+                  className="w-full bg-[#050507] border border-zinc-800 text-xs text-white rounded-xl pl-9 pr-3 py-3 outline-none focus:border-purple-500/50"
+                />
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-1.5">
+              <label className="text-[10px] uppercase font-bold text-zinc-500 tracking-wider">Secret Password</label>
+              <div className="relative">
+                <span className="absolute inset-y-0 left-0 pl-3 flex items-center text-zinc-500">
+                  <Key size={13} />
+                </span>
+                <input
+                  type="password"
+                  required
+                  value={loginPassword}
+                  onChange={(e) => setLoginPassword(e.target.value)}
+                  placeholder="••••••••"
+                  minLength={6}
+                  className="w-full bg-[#050507] border border-zinc-800 text-xs text-white rounded-xl pl-9 pr-3 py-3 outline-none focus:border-purple-500/50"
+                />
+              </div>
+            </div>
+
+            {loginError && (
+              <span className="text-[10px] text-red-400 font-semibold bg-red-950/20 p-2.5 rounded-xl border border-red-900/30">
+                {loginError}
+              </span>
+            )}
+
+            <button
+              type="submit"
+              disabled={loginLoading}
+              className="w-full mt-2 py-3 bg-[#9c27b0] hover:brightness-110 text-white font-extrabold uppercase text-xs rounded-xl shadow-lg active:scale-[0.99] cursor-pointer transition-all disabled:opacity-50"
+            >
+              {loginLoading ? 'Authenticating...' : (isLoginSignUp ? 'Register Account' : 'Sign In Now')}
+            </button>
+          </form>
+
+          <div className="flex flex-col gap-3 text-center border-t border-zinc-850 pt-4">
+            <button
+              onClick={() => setIsLoginSignUp(prev => !prev)}
+              className="text-[10px] uppercase font-extrabold tracking-widest text-purple-400 hover:underline cursor-pointer"
+            >
+              {isLoginSignUp ? 'Already have an account? Sign In' : 'Create new cloud account'}
+            </button>
+            <button
+              onClick={() => setCurrentView('landing')}
+              className="text-[10px] uppercase font-extrabold tracking-widest text-zinc-500 hover:text-white cursor-pointer mt-1"
+            >
+              ← Back to Portal Home
+            </button>
+            <button
+              onClick={() => {
+                setHouseData(initialHouseData);
+                setCurrentView('dashboard');
+              }}
+              className="text-[9px] uppercase font-black tracking-widest text-[#9c27b0] hover:brightness-110 cursor-pointer mt-1"
+            >
+              Bypass / Continue as Guest
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Render Dashboard Workspace Hub View
+  if (currentView === 'dashboard') {
+    return (
+      <div className="flex flex-col min-h-screen bg-[#07080a] bg-tech-grid text-zinc-100 overflow-y-auto font-sans">
+        <header className="flex justify-between items-center px-10 py-5 border-b border-zinc-900 bg-[#07080a]/80 backdrop-blur-md sticky top-0 z-50 select-none">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-gradient-to-tr from-[#9c27b0] to-purple-650 rounded-xl text-white">
+              <HardHat size={16} />
+            </div>
+            <h2 className="text-xs font-black uppercase text-white tracking-widest leading-none">Vision Studio Hub</h2>
+          </div>
+          <div className="flex items-center gap-5">
+            {user ? (
+              <div className="flex items-center gap-3">
+                <span className="text-[11px] font-mono text-zinc-400 bg-zinc-900 border border-zinc-800 px-3 py-1.5 rounded-xl">{user.email}</span>
+                <button
+                  onClick={async () => {
+                    await supabase.auth.signOut();
+                    setUser(null);
+                  }}
+                  className="text-[10px] text-red-400 hover:text-red-300 font-extrabold uppercase transition-colors cursor-pointer"
+                >
+                  Sign Out
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={() => {
+                  setIsLoginSignUp(false);
+                  setCurrentView('login');
+                }}
+                className="px-4 py-2 border border-zinc-800 hover:border-zinc-700 text-xs font-bold uppercase rounded-xl transition-all cursor-pointer text-zinc-300 hover:text-white"
+              >
+                Connect Supabase
+              </button>
+            )}
+            <button
+              onClick={() => setCurrentView('landing')}
+              className="text-xs text-zinc-400 hover:text-white transition-colors font-bold uppercase tracking-wider"
+            >
+              Home
+            </button>
+          </div>
+        </header>
+
+        <div className="flex-grow max-w-6xl w-full mx-auto px-6 py-12 flex flex-col gap-10 animate-fade-in">
+          <div className="flex flex-col gap-2">
+            <span className="text-[10px] text-purple-400 font-extrabold uppercase tracking-widest">ARCHITECT WORKSPACE HUB</span>
+            <h1 className="text-3xl font-black text-white uppercase">
+              {user ? "Your Architectural Vault" : "Developer Sandbox Workspace"}
+            </h1>
+            <p className="text-sm text-zinc-400">Initialize procedural architectural configurations or launch design templates directly into the viewport studio.</p>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            {/* Procedural Configurator Form */}
+            <div className="lg:col-span-1 bg-zinc-900/50 p-6 rounded-2xl border border-zinc-850 flex flex-col gap-5 glass-panel">
+              <h3 className="text-xs font-extrabold uppercase tracking-wider text-white border-b border-zinc-800 pb-3 flex items-center gap-2">
+                <Sparkles size={13} className="text-purple-400" /> Site Generator
+              </h3>
+
+              <div className="flex flex-col gap-4">
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-[9px] uppercase font-bold text-zinc-500 tracking-wider">Project Title Name</label>
+                  <input
+                    type="text"
+                    value={newProjectName}
+                    onChange={(e) => setNewProjectName(e.target.value)}
+                    className="w-full bg-[#050507] border border-zinc-800 text-xs text-white rounded-xl px-3.5 py-3 outline-none focus:border-purple-500/50 font-bold"
+                  />
+                </div>
+
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-[9px] uppercase font-bold text-zinc-500 tracking-wider">Total Area (Sq ft)</label>
+                  <input
+                    type="number"
+                    value={newProjectArea}
+                    onChange={(e) => setNewProjectArea(parseInt(e.target.value) || 1200)}
+                    className="w-full bg-[#050507] border border-zinc-800 text-xs text-white rounded-xl px-3.5 py-3 outline-none focus:border-purple-500/55 font-bold"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-3.5">
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-[9px] uppercase font-bold text-zinc-500 tracking-wider">Bedrooms</label>
+                    <select
+                      value={newProjectBedrooms}
+                      onChange={(e) => setNewProjectBedrooms(parseInt(e.target.value))}
+                      className="w-full bg-[#050507] border border-zinc-800 text-xs text-white rounded-xl px-3.5 py-3 outline-none focus:border-purple-500/50 font-bold"
+                    >
+                      <option value={1}>1 BHK</option>
+                      <option value={2}>2 BHK</option>
+                      <option value={3}>3 BHK</option>
+                      <option value={4}>4 BHK</option>
+                    </select>
+                  </div>
+
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-[9px] uppercase font-bold text-zinc-500 tracking-wider">Bathrooms</label>
+                    <select
+                      value={newProjectBathrooms}
+                      onChange={(e) => setNewProjectBathrooms(parseInt(e.target.value))}
+                      className="w-full bg-[#050507] border border-zinc-800 text-xs text-white rounded-xl px-3.5 py-3 outline-none focus:border-purple-500/50"
+                    >
+                      <option value={1}>1 Bath</option>
+                      <option value={2}>2 Baths</option>
+                      <option value={3}>3 Baths</option>
+                    </select>
+                  </div>
+                </div>
+
+                <button
+                  onClick={() => {
+                    const customizedBIM = generateHouseBIM({
+                      areaSqft: newProjectArea,
+                      bedrooms: newProjectBedrooms,
+                      bathrooms: newProjectBathrooms,
+                      hasParking: newProjectParking,
+                      style: newProjectStyle
+                    });
+                    setHouseData(customizedBIM);
+                    setBuildingType('single');
+                    setFloorCount(1);
+                    setRoofStyle('rcc_flat');
+                    setProjectName(newProjectName);
+                    setCurrentView('editor');
+                  }}
+                  className="w-full py-3.5 mt-2 bg-[#9c27b0] hover:brightness-110 text-white font-extrabold uppercase text-xs rounded-xl shadow-lg transition-all active:scale-[0.99] cursor-pointer"
+                >
+                  Create New Project
+                </button>
+              </div>
+            </div>
+
+            {/* Template Presets Grid */}
+            <div className="lg:col-span-2 flex flex-col gap-5">
+              <h3 className="text-xs font-extrabold uppercase tracking-wider text-white border-b border-zinc-800 pb-3">
+                Preset architectural designs
+              </h3>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                {/* Preset 1 */}
+                <div
+                  onClick={() => {
+                    const customizedBIM = generateHouseBIM({
+                      areaSqft: 1500,
+                      bedrooms: 3,
+                      bathrooms: 2,
+                      hasParking: true,
+                      style: 'modern'
+                    });
+                    setHouseData(customizedBIM);
+                    setBuildingType('duplex');
+                    setFloorCount(2);
+                    setRoofStyle('mangalore_slope');
+                    setFloorTexture('Chettinad Clay Tiles');
+                    setProjectName('Vastu Duplex Villa');
+                    setCurrentView('editor');
+                  }}
+                  className="bg-zinc-950 border border-zinc-850 p-5 rounded-2xl cursor-pointer card-hover-purple flex flex-col gap-4"
+                >
+                  <div className="h-28 bg-[#121218] rounded-xl flex items-center justify-center font-bold text-xs border border-zinc-850/50">
+                    🏡 Vastu Duplex Villa Preset
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-bold text-white uppercase">Modern Duplex Villa</h4>
+                    <p className="text-[10px] text-zinc-400 mt-1 leading-relaxed">3 BHK • G+1 Duplex • Sloped Mangalore tiled ceiling • South solar array and water utilities preloaded.</p>
+                  </div>
+                </div>
+
+                {/* Preset 2 */}
+                <div
+                  onClick={() => {
+                    const customizedBIM = generateHouseBIM({
+                      areaSqft: 1100,
+                      bedrooms: 2,
+                      bathrooms: 2,
+                      hasParking: true,
+                      style: 'modern'
+                    });
+                    setHouseData(customizedBIM);
+                    setBuildingType('single');
+                    setFloorCount(1);
+                    setRoofStyle('rcc_flat');
+                    setFloorTexture('Vitrified Ivory Tiles');
+                    setProjectName('Vastu Cozy Villa');
+                    setCurrentView('editor');
+                  }}
+                  className="bg-zinc-950 border border-zinc-850 p-5 rounded-2xl cursor-pointer card-hover-purple flex flex-col gap-4"
+                >
+                  <div className="h-28 bg-[#121218] rounded-xl flex items-center justify-center font-bold text-xs border border-zinc-850/50">
+                    🏠 Standard Single-Floor Preset
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-bold text-white uppercase">Standard 2BHK Cozy House</h4>
+                    <p className="text-[10px] text-zinc-400 mt-1 leading-relaxed">2 BHK • G+0 Level • Flat RCC Concrete Slab • South facing configuration matching basic Vastu layouts.</p>
+                  </div>
+                </div>
+
+                {/* Preset 3 */}
+                <div
+                  onClick={() => {
+                    const customizedBIM = generateHouseBIM({
+                      areaSqft: 2000,
+                      bedrooms: 4,
+                      bathrooms: 3,
+                      hasParking: true,
+                      style: 'modern'
+                    });
+                    setHouseData(customizedBIM);
+                    setBuildingType('apartment');
+                    setFloorCount(5);
+                    setRoofStyle('pergola_glass');
+                    setFloorTexture('Makrana White Marble');
+                    setProjectName('Modern Sky Rise Apartment');
+                    setCurrentView('editor');
+                  }}
+                  className="bg-zinc-950 border border-zinc-850 p-5 rounded-2xl cursor-pointer card-hover-purple flex flex-col gap-4"
+                >
+                  <div className="h-28 bg-[#121218] rounded-xl flex items-center justify-center font-bold text-xs border border-zinc-850/50">
+                    🏢 Skyscraper Apartment Preset
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-bold text-white uppercase">Multi-Story Dwelling Block</h4>
+                    <p className="text-[10px] text-zinc-400 mt-1 leading-relaxed">4 BHK • G+4 Stacking level • Pergola & Glass sky canopies • Premium Makrana marble flooring pre-loaded.</p>
+                  </div>
+                </div>
+
+                {/* Preset 4 */}
+                <div
+                  onClick={() => {
+                    setHouseData(initialHouseData);
+                    setBuildingType('single');
+                    setFloorCount(1);
+                    setRoofStyle('rcc_flat');
+                    setProjectName('Untitled Vastu Layout');
+                    setCurrentView('editor');
+                  }}
+                  className="bg-zinc-950 border border-zinc-850 p-5 rounded-2xl cursor-pointer card-hover-purple flex flex-col gap-4"
+                >
+                  <div className="h-28 bg-[#121218] rounded-xl flex items-center justify-center font-bold text-xs border border-zinc-850/50">
+                    🎨 Blank Canvas Studio / Default
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-bold text-white uppercase">Blank Sandbox Workspace</h4>
+                    <p className="text-[10px] text-zinc-400 mt-1 leading-relaxed">Load default 4-quadrant plan into the studio editor to quickly trace wall structures or inject doors manually.</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col w-screen h-screen overflow-hidden bg-[#09090b] text-[#f8fafc] font-sans antialiased">
 
@@ -172,13 +708,21 @@ export default function App() {
 
         {/* Brand Details */}
         <div className="flex items-center gap-3">
+          <button
+            onClick={() => setCurrentView('dashboard')}
+            className="flex items-center gap-1 px-3 py-2 bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-white rounded-xl text-[10px] font-black uppercase transition-all cursor-pointer mr-2 shadow-inner"
+          >
+            <ChevronLeft size={10} />
+            <span>Dashboard</span>
+          </button>
+
           <div className="p-2.5 bg-gradient-to-tr from-[#9c27b0] to-[#ec4899] rounded-xl shadow-lg shadow-purple-950/30">
             <HardHat size={18} className="text-white" />
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <h1 className="text-lg font-black uppercase text-white tracking-widest">Vision</h1>
-              <span className="bg-purple-950/60 text-purple-400 font-extrabold text-[9px] uppercase px-2 py-0.5 rounded border border-purple-800/40 tracking-wider shadow-inner">CIVIL VASTU</span>
+              <h1 className="text-lg font-black uppercase text-white tracking-widest">{projectName}</h1>
+              <span className="bg-purple-950/60 text-purple-400 font-extrabold text-[9px] uppercase px-2 py-0.5 rounded border border-purple-800/40 tracking-wider shadow-inner">STUDIO</span>
             </div>
             <p className="text-xs text-zinc-400 font-semibold uppercase tracking-widest mt-0.5">Computational Architectural AI</p>
           </div>
